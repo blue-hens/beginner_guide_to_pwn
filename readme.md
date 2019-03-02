@@ -293,6 +293,129 @@ r = remote(<addr>,<port>)
 ```
 and you'll be good to go
 
+### return oriented programming
+
+This is the toughest challenge to solve generically, but we'll give
+it a go. There are a few techniques to this, and more than a few tools.
+[One gadget](https://github.com/david942j/one_gadget#install) is a
+good one to start with, specifically for challenges that provide a
+`libc.so` file. If none is provided, I'll explain how to do this
+manually.
+
+
+The basic technique is to string together segments of code that end
+in returns, and overwrite enough return addresses (like in the
+shellcode exploit) that they are all run sequentially, to produce the
+same effect as running custom code that you would inject yourself.
+
+Start by finding the offset of a return address under our control:
+
+```
+(gdb) r
+Starting program: /home/crclark/repos/bluehens_pwning/rop.elf
+AAABAACAADAAEAAFAAGAAHAAIAAJAAKAALAAMAANAAOAAPAAQAARAASAATAAUAAVAAWAAXAAYAAZAAaAAbAAcAAdAAeAAfAAgAAhAAiAAjAAkAAlAAmAAnAAoAApAAqAArAAsAAtAAuAAvAAwAAxAAyAAzAA1AA2AA3AA4AA5AA6AA7AA8AA9AA0ABBABCABDABEABFABGABHABIABJABKABLABMABNABOABPABQABRABSABTABUABVABWABXABYABZABaABbABcABdABeABfABgABhABiABjABkABlABmABnABoABpABqABrABsABtABuABvABwABxAByABzAB1AB2AB3AB4AB5AB6AB7AB8AB9AB0ACBACCACDACEACFACGACHACIACJACKACLACMACNACOACPACQACRACSACTACUACVACWACXACYACZACaACbACcACdACeACfACgAChACiACjACkAClACmACnACoACpACqACrACsACtACuACvACwA
+
+Program received signal SIGSEGV, Segmentation fault.
+0x42416f42 in ?? ()
+```
+
+Snag the address and calculate the offset:
+
+```
+$ ragg2 -q 0x42416f42
+
+Little endian: 302
+Big endian: -1
+
+```
+
+This is our offset value for our exploit.py script. Now find the address
+of the first piece of code that you want to run. Radare2 has a great
+rop gadget finder that's executed with `/R`. It looks something like
+this:
+
+```
+[0x00005850]> /R
+
+  0x0001e671               0000  add byte [rax], al
+  0x0001e673             001c2c  add byte [rsp + rbp], bl
+  0x0001e676               0000  add byte [rax], al
+  0x0001e678             487cff  jl 0x1e67a
+  0x0001e67b             ff6500  jmp qword [rbp]
+
+  0x0001e672               0000  add byte [rax], al
+  0x0001e674               1c2c  sbb al, 0x2c
+  0x0001e676               0000  add byte [rax], al
+  0x0001e678             487cff  jl 0x1e67a
+  0x0001e67b             ff6500  jmp qword [rbp]
+
+  0x0001e679               7cff  jl 0x1e67a
+  0x0001e67b             ff6500  jmp qword [rbp]
+```
+
+You can also specify specific operations that you're looking for, like
+pushing values to the stack, popping values off of the stack and putting
+them in registers (very popular way to customize values in the code)
+and calls to popular exploitable functions like `system()`.
+
+Very importantly, if you want to provide a function with a string, **you
+have to find the string somewhere in the binary**. Passing strings
+via the stack is very arbitrary because local environment variables
+will move things around on the target system. Use the `/` function
+in radare2 to look for strings. The `search.to` and `search.from`
+variables tell radare2 what addresses to look through. Change them
+with this command: `e search.from=0x00000000`
+
+Look for the address of these functions using the `ii` command:
+
+```
+r2 -A <binary>
+[0x08048450]> ii
+[Imports]
+Num  Vaddr       Bind      Type Name
+   1 0x080483c0  GLOBAL    FUNC printf
+   2 0x080483d0  GLOBAL    FUNC gets
+   3 0x080483e0  GLOBAL    FUNC puts
+   4 0x080483f0  GLOBAL    FUNC system
+   5 0x00000000    WEAK  NOTYPE __gmon_start__
+   6 0x08048400  GLOBAL    FUNC strchr
+   7 0x08048410  GLOBAL    FUNC __libc_start_main
+   8 0x08048420  GLOBAL    FUNC setvbuf
+   9 0x08048430  GLOBAL    FUNC snprintf
+  10 0x00000000  GLOBAL     OBJ stdout
+```
+
+As you figure out how you're going to exploit the binary, keep track of
+the addresses, arguments, and stack values that you want and append
+them to your payload like this:
+
+```
+payload = 'A'*offset
+payload += p32(<addr of first gadget>) # use p64 for 64-bit binaries
+payload += p32(<addr of second gadget>)
+payload += <0 or more values the second gadget expects on the stack>
+payload += <0 or more values the first gadget expects on the stack>
+```
+
+Continue like so. The address of the next gadget should be immediately
+following the address of the current gadget. Basically the functions
+will go from the outside and move inward, with the last gadget's address
+and stack data next to each other in the payload.
+
+For 32-bit systems, arguments can be passed to functions directly one
+the stack, so sometimes gadgets aren't even needed, you just need to
+provide the address of `system()` followed by the address of the
+string that you want to provide to it as an argument.
+
+In 64-bit systems, arguments are passed to functions in registers in
+this order: `rdi`, `rsi`, `rdx`, `rcx` `r8`, `r9`, then the stack.
+If you wanted to pass the address of the string `/bin/sh` to the
+`system()` function, you'd need to find a gadget that contains
+`pop rdi`, and pass that address as a value in the payload.
+
+This is the most difficult section to understand, so if you're not
+entirely sure what to do, that's normal. Read through a few more
+times if you need to, these challenges can be tough.
 
 
 
