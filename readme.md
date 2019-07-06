@@ -27,7 +27,7 @@ that buffer overflows allow:
 
 From easiest to hardest, here is how to identify them:
 
-### variable altercation
+### variable alteration
 
 You open the binary in radare2 and inspect the binary:
 
